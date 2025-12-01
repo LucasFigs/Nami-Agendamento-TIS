@@ -13,21 +13,18 @@ exports.criarAgendamento = async (req, res) => {
 
         console.log('Data recebida do frontend:', data);
 
-        // CORREÇÃO: Garantir que a data seja salva como UTC (Usar meio-dia UTC para evitar problemas de fuso)
-        const dataUTC = new Date(data + 'T12:00:00Z'); 
-        
-        console.log('Data que será salva no banco (UTC):', dataUTC);
+        // 1. Garantir UTC
+        const dataUTC = new Date(data + 'T12:00:00Z');
 
-        // Verificar se médico existe
+        // 2. Verificar médico
+        // IMPORTANTE: Adicionamos .populate para pegar o nome do médico para o email
         const medico = await Medico.findById(medicoid).populate('usuario', 'nome');
+
         if (!medico) {
-            return res.status(404).json({
-                success: false,
-                message: 'Médico não encontrado'
-            });
+            return res.status(404).json({ success: false, message: 'Médico não encontrado' });
         }
 
-        // Verificar se horário está disponível
+        // 3. Verificar conflito de horário
         const agendamentoConflitante = await Agendamento.findOne({
             medico: medicoid,
             data: dataUTC,
@@ -36,13 +33,10 @@ exports.criarAgendamento = async (req, res) => {
         });
 
         if (agendamentoConflitante) {
-            return res.status(400).json({
-                success: false,
-                message: 'Horário já ocupado'
-            });
+            return res.status(400).json({ success: false, message: 'Horário já ocupado' });
         }
 
-        // Criar agendamento
+        // 4. Criar agendamento no Banco
         const agendamento = await Agendamento.create({
             paciente: pacientoid,
             medico: medicoid,
@@ -51,23 +45,30 @@ exports.criarAgendamento = async (req, res) => {
             especialidade: medico.especialidade
         });
 
-        // --- INTEGRAÇÃO REDIS (NOTIFICAÇÃO) ---
-        // Buscar dados do paciente para o email
+        // ============================================================
+        // 🚨 AQUI ESTAVA FALTANDO: INTEGRAÇÃO COM REDIS
+        // ============================================================
+
+        // Buscar dados do paciente (nome e email) para enviar a notificação
         const pacienteData = await Usuario.findById(pacientoid);
-        
+
+        // Montar o objeto de evento
         const eventoData = {
-            email: pacienteData.email,
+            email: pacienteData.email, // OBRIGATÓRIO PARA O RESEND
             nome: pacienteData.nome,
             medico: medico.usuario ? medico.usuario.nome : 'Médico NAMI',
             data: new Date(dataUTC).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
             horario: horario
         };
 
-        // Publica o evento para o notificacao-service
-        await publishEvent('AGENDAMENTO_CRIADO', eventoData);
-        // ---------------------------------------
+        console.log('📤 Preparando para enviar evento ao Redis:', eventoData);
 
-        console.log('Agendamento criado com sucesso:', agendamento._id);
+        // Publicar no canal que o Notificacao-Service está ouvindo
+        await publishEvent('AGENDAMENTO_CRIADO', eventoData);
+
+        // ============================================================
+
+        console.log('✅ Agendamento criado e notificação disparada:', agendamento._id);
 
         res.status(201).json({
             success: true,
@@ -205,7 +206,7 @@ exports.reagendarAgendamento = async (req, res) => {
                 message: 'Acesso negado'
             });
         }
-        
+
         // CORREÇÃO: Garantir que a data seja salva como UTC
         const dataUTC = new Date(data + 'T12:00:00Z');
 
@@ -363,9 +364,9 @@ exports.cancelarAgendamentoAdmin = async (req, res) => {
 
         const agendamento = await Agendamento.findById(agendamentoId)
             .populate('paciente', 'nome email')
-            .populate('medico', 'especialidade'); 
-            // Nota: populate 'medico' aqui traz o objeto medico, não o usuario. 
-            // Se precisar do nome do médico, precisa de nested populate ou ajustar.
+            .populate('medico', 'especialidade');
+        // Nota: populate 'medico' aqui traz o objeto medico, não o usuario. 
+        // Se precisar do nome do médico, precisa de nested populate ou ajustar.
 
         if (!agendamento) {
             return res.status(404).json({
@@ -426,7 +427,7 @@ exports.cancelarAgendamentoAdmin = async (req, res) => {
 exports.getAgendamentosPaciente = async (req, res) => {
     try {
         const usuarioid = req.usuario.id;
-        
+
         const agendamentos = await Agendamento.find({ paciente: usuarioid })
             .populate({
                 path: 'medico',
@@ -477,9 +478,9 @@ exports.getAgendamentosPaciente = async (req, res) => {
 exports.getAgendamentosMedico = async (req, res) => {
     try {
         const usuarioId = req.usuario.id;
-        
+
         const medico = await Medico.findOne({ usuario: usuarioId });
-        
+
         if (!medico) {
             return res.status(404).json({
                 success: false,
@@ -488,16 +489,16 @@ exports.getAgendamentosMedico = async (req, res) => {
         }
 
         const agendamentos = await Agendamento.find({ medico: medico._id })
-        .populate('paciente', 'nome email telefone')
-        .populate({
-            path: 'medico',
-            select: 'especialidade usuario',
-            populate: {
-                path: 'usuario',
-                select: 'nome'
-            }
-        })
-        .sort({ data: -1, horario: -1 });
+            .populate('paciente', 'nome email telefone')
+            .populate({
+                path: 'medico',
+                select: 'especialidade usuario',
+                populate: {
+                    path: 'usuario',
+                    select: 'nome'
+                }
+            })
+            .sort({ data: -1, horario: -1 });
 
         const agendamentosFormatados = agendamentos.map(agendamento => {
             const dataObj = new Date(agendamento.data);
@@ -542,7 +543,7 @@ exports.getMeusAgendamentos = async (req, res) => {
     try {
         const usuarioId = req.usuario.id;
         const medico = await Medico.findOne({ usuario: usuarioId });
-        
+
         if (!medico) {
             return res.status(404).json({
                 success: false,
@@ -551,9 +552,9 @@ exports.getMeusAgendamentos = async (req, res) => {
         }
 
         const agendamentos = await Agendamento.find({ medico: medico._id })
-        .populate('paciente', 'nome email telefone')
-        .populate('medico', 'usuario especialidade')
-        .sort({ data: 1, horario: 1 });
+            .populate('paciente', 'nome email telefone')
+            .populate('medico', 'usuario especialidade')
+            .sort({ data: 1, horario: 1 });
 
         res.json({
             success: true,
@@ -630,10 +631,10 @@ exports.getTodosAgendamentos = async (req, res) => {
 exports.getRelatorios = async (req, res) => {
     try {
         const { periodo = '30dias' } = req.query;
-        
+
         const dataFim = new Date();
         const dataInicio = new Date();
-        
+
         switch (periodo) {
             case '7dias': dataInicio.setDate(dataInicio.getDate() - 7); break;
             case '90dias': dataInicio.setDate(dataInicio.getDate() - 90); break;
@@ -731,7 +732,7 @@ exports.getEstatisticasStatus = async (req, res) => {
         const { periodo = '30dias' } = req.query;
         const dataFim = new Date();
         const dataInicio = new Date();
-        
+
         switch (periodo) {
             case '7dias': dataInicio.setDate(dataInicio.getDate() - 7); break;
             case '90dias': dataInicio.setDate(dataInicio.getDate() - 90); break;

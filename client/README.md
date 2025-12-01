@@ -1,3 +1,4 @@
+
 # 🎨 NAMI Frontend - Interface do Usuário
 
 Frontend React.js do sistema NAMI Agendamento, oferecendo interfaces responsivas e intuitivas para pacientes, médicos e administradores.
@@ -48,36 +49,43 @@ npm run build
 
 # Executar testes
 npm test
-```
+````
 
 ## 🎨 Estrutura de Componentes
 
 ```
 src/
 ├── components/     # Componentes reutilizáveis
-├── pages/         # Páginas completas
-├── services/      # Serviços API
-├── styles/        # Estilos globais
-└── App.js         # Componente raiz
+├── pages/          # Páginas completas
+├── services/       # Serviços API
+├── styles/         # Estilos globais
+└── App.js          # Componente raiz
 ```
 
 ## 🔌 Integração com API
 
 O frontend consome a API através dos serviços em `src/services/`:
 
-- `authService.js` - Autenticação
-- `agendamentoService.js` - Agendamentos
-- `medicoService.js` - Dados médicos
-- `usuarioService.js` - Dados usuários
+  - `authService.js` - Autenticação
+  - `agendamentoService.js` - Agendamentos
+  - `medicoService.js` - Dados médicos
+  - `usuarioService.js` - Dados usuários
 
 ## 🎭 Variáveis de Ambiente
 
-Crie um arquivo `.env` na raiz do client:
+Crie um arquivo `.env` na raiz da pasta `client/`. Abaixo está um exemplo do conteúdo:
 
 ```env
-REACT_APP_API_URL=http://localhost:5000/api
+# URL da API Backend (Altere se o backend estiver em outra porta ou servidor)
+# Exemplo Dev: http://localhost:5000/api
+# Exemplo Prod: [https://api.nami-agendamento.com.br/api](https://api.nami-agendamento.com.br/api)
+REACT_APP_API_URL=<URL_DA_SUA_API>
+
+# Ambiente (development, test ou production)
 REACT_APP_ENV=development
 ```
+
+> **Nota:** Em projetos React criados com CRA, as variáveis devem começar obrigatoriamente com `REACT_APP_`.
 
 ## 🧪 Testes
 
@@ -92,18 +100,21 @@ npm test -- --coverage
 ## 📱 Responsividade
 
 O sistema é totalmente responsivo, funcionando em:
-- 📱 Mobile (320px+)
-- 📟 Tablet (768px+)
-- 💻 Desktop (1024px+)
+
+  - 📱 Mobile (320px+)
+  - 📟 Tablet (768px+)
+  - 💻 Desktop (1024px+)
 
 ## 🚀 Deploy
 
 ### Build de Produção
+
 ```bash
 npm run build
 ```
 
 ### Servir Build
+
 ```bash
 # Usando serve
 npx serve -s build
@@ -114,14 +125,14 @@ node server-static.js
 
 ## 📊 Performance
 
-- Code splitting automático
-- Lazy loading de rotas
-- Otimização de imagens
-- Bundle analysis com webpack-bundle-analyzer
+  - Code splitting automático
+  - Lazy loading de rotas
+  - Otimização de imagens
+  - Bundle analysis com webpack-bundle-analyzer
 
 ## 🔒 Segurança
 
-- Validação de formulários
-- Proteção de rotas autenticadas
-- Sanitização de inputs
-- Tokens JWT com expiration
+  - Validação de formulários
+  - Proteção de rotas autenticadas
+  - Sanitização de inputs
+  - Tokens JWT com expiration
