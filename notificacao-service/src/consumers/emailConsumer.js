@@ -25,4 +25,4 @@ export const iniciarConsumidor = async () => {
   console.log("Consumidor ativo nos canais AGENDAMENTO_CRIADO e AGENDAMENTO_CANCELADO");
 };
 
-module.exports = { iniciarConsumidor };
+export = { iniciarConsumidor };
