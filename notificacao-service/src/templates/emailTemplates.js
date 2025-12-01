@@ -1,4 +1,4 @@
-const confirmationTemplate = (pacienteNome, medicoNome, especialidade, data, horario) => `
+export const confirmationTemplate = (pacienteNome, medicoNome, especialidade, data, horario) => `
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Confirmação de Agendamento</title>
 <style>
@@ -27,7 +27,7 @@ const confirmationTemplate = (pacienteNome, medicoNome, especialidade, data, hor
 </body></html>
 `;
 
-const cancellationTemplate = (pacienteNome, medicoNome, data, horario) => `
+export const cancellationTemplate = (pacienteNome, medicoNome, data, horario) => `
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Cancelamento</title></head>
 <body style="font-family:Arial,sans-serif;background:#f4f4f4;padding:20px">
