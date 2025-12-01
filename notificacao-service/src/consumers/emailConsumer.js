@@ -1,7 +1,7 @@
 import redisClient from "../redisClient.js";
 import { enviarConfirmacao, enviarCancelamento } from "../services/emailService.js";
 
-export const iniciarConsumidor = async () => {
+const iniciarConsumidor = async () => {
   await redisClient.subscribe("AGENDAMENTO_CRIADO", (message) => {
     console.log("Evento AGENDAMENTO_CRIADO recebido");
     try {
