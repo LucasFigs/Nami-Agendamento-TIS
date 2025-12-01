@@ -1,15 +1,7 @@
-const redisClient = require("../redisClient");
-const {
-  enviarConfirmacao,
-  enviarCancelamento
-} = require("../services/emailService");
+import redisClient from "../redisClient.js";
+import { enviarConfirmacao, enviarCancelamento } from "../services/emailService.js";
 
-const iniciarConsumidor = async () => {
-  // Garantir conexão se necessário
-  if (!redisClient.isOpen) {
-      await redisClient.connect();
-  }
-
+export const iniciarConsumidor = async () => {
   await redisClient.subscribe("AGENDAMENTO_CRIADO", (message) => {
     console.log("Evento AGENDAMENTO_CRIADO recebido");
     try {
