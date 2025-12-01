@@ -1,15 +1,14 @@
-import { Resend } from "resend";
-import dotenv from "dotenv";
-
-dotenv.config();
+const { Resend } = require("resend");
+require("dotenv").config();
+const { confirmationTemplate, cancellationTemplate } = require("../templates/emailTemplates");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Função genérica de envio
-export const enviarEmail = async (to, assunto, mensagemHtml) => {
+const enviarEmail = async (to, assunto, mensagemHtml) => {
   try {
     const data = await resend.emails.send({
-      from: "Nami Agendamentos <onboarding@resend.dev>",
+      from: process.env.FROM_EMAIL || "onboarding@resend.dev",
       to,
       subject: assunto,
       html: mensagemHtml
@@ -20,28 +19,33 @@ export const enviarEmail = async (to, assunto, mensagemHtml) => {
 
   } catch (err) {
     console.error("Erro ao enviar email:", err);
-    throw err;
+    return null; // Retorna null em vez de erro para não parar o servidor
   }
 };
 
-// =============== EXPORTS QUE SEU CONSUMER PRECISA =====================
-
-export const enviarConfirmacao = async (email, dados) => {
-  const mensagem = `
-    <h2>Agendamento Confirmado</h2>
-    <p>Olá ${dados.nome}, seu agendamento foi confirmado!</p>
-    <p><strong>Data:</strong> ${dados.data}</p>
-  `;
-
+const enviarConfirmacao = async (email, dados) => {
+  const mensagem = confirmationTemplate(
+      dados.nome, 
+      dados.medico || "Médico NAMI", 
+      "Consulta", 
+      dados.data, 
+      dados.horario
+  );
   return enviarEmail(email, "Agendamento Confirmado", mensagem);
 };
 
-export const enviarCancelamento = async (email, dados) => {
-  const mensagem = `
-    <h2>Agendamento Cancelado</h2>
-    <p>Olá ${dados.nome}, seu agendamento foi cancelado.</p>
-    <p><strong>Data:</strong> ${dados.data}</p>
-  `;
-
+const enviarCancelamento = async (email, dados) => {
+  const mensagem = cancellationTemplate(
+      dados.nome, 
+      dados.medico || "Médico NAMI", 
+      dados.data, 
+      dados.horario
+  );
   return enviarEmail(email, "Agendamento Cancelado", mensagem);
+};
+
+module.exports = {
+    enviarEmail,
+    enviarConfirmacao,
+    enviarCancelamento
 };

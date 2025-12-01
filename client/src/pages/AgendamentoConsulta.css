@@ -1,0 +1,228 @@
+/* AgendamentoConsulta.css - Seguindo o padrão do AdminDashboard */
+
+/* Container principal usando as mesmas variáveis */
+.agendamento-container {
+  min-height: 100vh;
+  background: var(--background);
+}
+
+/* Step Indicator */
+.step-indicator {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.step {
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--background);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  transition: all 0.3s ease;
+}
+
+.step.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* Form Grid específico para agendamento */
+.agendamento-container .form-grid {
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.agendamento-container .form-group {
+  margin-bottom: 0;
+}
+
+/* Form Hints e Estados */
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.form-warning {
+  font-size: 0.75rem;
+  color: var(--warning);
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 500;
+}
+
+.loading-indicator {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Resumo do Agendamento */
+.agendamento-summary {
+  background: var(--background);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin: 2rem 0 1rem 0;
+}
+
+.agendamento-summary h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.summary-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.summary-value {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Estados de desabilitado com estilo consistente */
+.agendamento-container select:disabled,
+.agendamento-container input:disabled {
+  background-color: var(--background);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.agendamento-container select:disabled::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* Loading States */
+.loading-spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-left-color: currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsividade Específica */
+@media (max-width: 768px) {
+  .agendamento-container .form-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .step-indicator {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .step {
+    font-size: 0.7rem;
+    padding: 0.375rem 0.75rem;
+  }
+  
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .agendamento-summary {
+    padding: 1rem;
+    margin: 1.5rem 0 1rem 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .step-indicator {
+    gap: 0.5rem;
+  }
+  
+  .step {
+    font-size: 0.65rem;
+    padding: 0.25rem 0.5rem;
+  }
+}
+
+/* Melhorias de Acessibilidade */
+.agendamento-container select:focus,
+.agendamento-container input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Estados de Hover consistentes */
+.agendamento-container select:not(:disabled):hover,
+.agendamento-container input:not(:disabled):hover {
+  border-color: var(--primary);
+}
+
+/* Animações suaves */
+.agendamento-summary {
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Customização dos options do select */
+.agendamento-container select option {
+  padding: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.agendamento-container select option:checked {
+  background: var(--primary);
+  color: white;
+}
+
+/* Placeholder styling */
+.agendamento-container select:invalid {
+  color: var(--text-tertiary);
+}
+
+.agendamento-container select option[value=""] {
+  color: var(--text-tertiary);
+}
