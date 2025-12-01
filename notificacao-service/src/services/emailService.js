@@ -1,10 +1,13 @@
-const { Resend } = require("resend");
-require("dotenv").config();
-const { confirmationTemplate, cancellationTemplate } = require("../templates/emailTemplates");
+import { Resend } from 'resend';
+import dotenv from 'dotenv';
+// Importante: No padrão novo, precisa colocar .js no final do import
+import { confirmationTemplate, cancellationTemplate } from '../templates/emailTemplates.js';
+
+dotenv.config();
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Função genérica de envio
+// Função auxiliar (não precisa exportar)
 const enviarEmail = async (to, assunto, mensagemHtml) => {
   try {
     const data = await resend.emails.send({
@@ -19,11 +22,12 @@ const enviarEmail = async (to, assunto, mensagemHtml) => {
 
   } catch (err) {
     console.error("Erro ao enviar email:", err);
-    return null; // Retorna null em vez de erro para não parar o servidor
+    return null;
   }
 };
 
-const enviarConfirmacao = async (email, dados) => {
+// ATENÇÃO: Usar 'export const' ao invés de 'const' + 'module.exports'
+export const enviarConfirmacao = async (email, dados) => {
   const mensagem = confirmationTemplate(
       dados.nome, 
       dados.medico || "Médico NAMI", 
@@ -34,7 +38,7 @@ const enviarConfirmacao = async (email, dados) => {
   return enviarEmail(email, "Agendamento Confirmado", mensagem);
 };
 
-const enviarCancelamento = async (email, dados) => {
+export const enviarCancelamento = async (email, dados) => {
   const mensagem = cancellationTemplate(
       dados.nome, 
       dados.medico || "Médico NAMI", 
@@ -42,10 +46,4 @@ const enviarCancelamento = async (email, dados) => {
       dados.horario
   );
   return enviarEmail(email, "Agendamento Cancelado", mensagem);
-};
-
-module.exports = {
-    enviarEmail,
-    enviarConfirmacao,
-    enviarCancelamento
 };
