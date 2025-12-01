@@ -1,0 +1,757 @@
+const Agendamento = require('../models/Agendamento');
+const Medico = require('../models/Medico');
+const Usuario = require('../models/Usuario');
+const { publishEvent } = require('../services/redisPublisher');
+
+// @desc    Criar agendamento
+// @route   POST /api/agendamentos
+// @access  Private
+exports.criarAgendamento = async (req, res) => {
+    try {
+        const { medicoid, data, horario } = req.body;
+        const pacientoid = req.usuario.id;
+
+        console.log('Data recebida do frontend:', data);
+
+        // CORREÇÃO: Garantir que a data seja salva como UTC (Usar meio-dia UTC para evitar problemas de fuso)
+        const dataUTC = new Date(data + 'T12:00:00Z'); 
+        
+        console.log('Data que será salva no banco (UTC):', dataUTC);
+
+        // Verificar se médico existe
+        const medico = await Medico.findById(medicoid).populate('usuario', 'nome');
+        if (!medico) {
+            return res.status(404).json({
+                success: false,
+                message: 'Médico não encontrado'
+            });
+        }
+
+        // Verificar se horário está disponível
+        const agendamentoConflitante = await Agendamento.findOne({
+            medico: medicoid,
+            data: dataUTC,
+            horario: horario,
+            status: { $in: ['agendado', 'confirmado'] }
+        });
+
+        if (agendamentoConflitante) {
+            return res.status(400).json({
+                success: false,
+                message: 'Horário já ocupado'
+            });
+        }
+
+        // Criar agendamento
+        const agendamento = await Agendamento.create({
+            paciente: pacientoid,
+            medico: medicoid,
+            data: dataUTC,
+            horario: horario,
+            especialidade: medico.especialidade
+        });
+
+        // --- INTEGRAÇÃO REDIS (NOTIFICAÇÃO) ---
+        // Buscar dados do paciente para o email
+        const pacienteData = await Usuario.findById(pacientoid);
+        
+        const eventoData = {
+            email: pacienteData.email,
+            nome: pacienteData.nome,
+            medico: medico.usuario ? medico.usuario.nome : 'Médico NAMI',
+            data: new Date(dataUTC).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
+            horario: horario
+        };
+
+        // Publica o evento para o notificacao-service
+        await publishEvent('AGENDAMENTO_CRIADO', eventoData);
+        // ---------------------------------------
+
+        console.log('Agendamento criado com sucesso:', agendamento._id);
+
+        res.status(201).json({
+            success: true,
+            message: 'Agendamento criado com sucesso',
+            data: agendamento
+        });
+
+    } catch (error) {
+        console.error('Erro ao criar agendamento:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao criar agendamento',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Listar agendamentos do usuário (Simples)
+// @route   GET /api/agendamentos
+// @access  Private
+exports.listarAgendamentos = async (req, res) => {
+    try {
+        const usuarioid = req.usuario.id;
+        const agendamentos = await Agendamento.find({ paciente: usuarioid })
+            .populate('medico', 'especialidade consultorio')
+            .sort({ data: 1 });
+
+        res.json({
+            success: true,
+            count: agendamentos.length,
+            data: agendamentos
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao listar agendamentos',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Cancelar agendamento (Paciente)
+// @route   PUT /api/agendamentos/:id/cancelar
+// @access  Private
+exports.cancelarAgendamento = async (req, res) => {
+    try {
+        const agendamentoId = req.params.id;
+        const usuarioId = req.usuario.id;
+
+        const agendamento = await Agendamento.findById(agendamentoId);
+
+        if (!agendamento) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agendamento não encontrado'
+            });
+        }
+
+        // Verificar se o usuário é o paciente dono do agendamento
+        if (agendamento.paciente.toString() !== usuarioId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Acesso negado. Este agendamento não pertence a você.'
+            });
+        }
+
+        // Verificar se já não está cancelado
+        if (agendamento.status === 'cancelado') {
+            return res.status(400).json({
+                success: false,
+                message: 'Agendamento já está cancelado'
+            });
+        }
+
+        agendamento.status = 'cancelado';
+        await agendamento.save();
+
+        // --- INTEGRAÇÃO REDIS (NOTIFICAÇÃO) ---
+        // Popula dados para o email de cancelamento
+        await agendamento.populate('paciente', 'nome email');
+        await agendamento.populate({
+            path: 'medico',
+            populate: { path: 'usuario', select: 'nome' }
+        });
+
+        const eventoData = {
+            email: agendamento.paciente.email,
+            nome: agendamento.paciente.nome,
+            medico: agendamento.medico?.usuario?.nome || 'Médico NAMI',
+            data: new Date(agendamento.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
+            horario: agendamento.horario
+        };
+
+        await publishEvent('AGENDAMENTO_CANCELADO', eventoData);
+        // ---------------------------------------
+
+        res.json({
+            success: true,
+            message: 'Agendamento cancelado com sucesso',
+            data: agendamento
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao cancelar agendamento',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Reagendar consulta
+// @route   PUT /api/agendamentos/:id/reagendar
+// @access  Private
+exports.reagendarAgendamento = async (req, res) => {
+    try {
+        const { data, horario } = req.body;
+        const agendamentoId = req.params.id;
+        const usuarioId = req.usuario.id;
+
+        const agendamento = await Agendamento.findById(agendamentoId);
+
+        if (!agendamento) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agendamento não encontrado'
+            });
+        }
+
+        // Verificar se o usuário é o dono do agendamento
+        if (agendamento.paciente.toString() !== usuarioId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Acesso negado'
+            });
+        }
+        
+        // CORREÇÃO: Garantir que a data seja salva como UTC
+        const dataUTC = new Date(data + 'T12:00:00Z');
+
+        // Verificar se novo horário está disponível
+        const conflito = await Agendamento.findOne({
+            medico: agendamento.medico,
+            data: dataUTC,
+            horario: horario,
+            status: { $in: ['agendado', 'confirmado'] },
+            _id: { $ne: agendamentoId }
+        });
+
+        if (conflito) {
+            return res.status(400).json({
+                success: false,
+                message: 'Novo horário já está ocupado'
+            });
+        }
+
+        // Atualizar agendamento
+        agendamento.data = dataUTC;
+        agendamento.horario = horario;
+        agendamento.status = 'agendado'; // Reverter status para agendado
+        await agendamento.save();
+
+        // Opcional: Enviar notificação de reagendamento aqui também
+
+        res.json({
+            success: true,
+            message: 'Consulta reagendada com sucesso',
+            data: agendamento
+        });
+
+    } catch (error) {
+        console.error('Erro ao reagendar consulta:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao reagendar consulta',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Adicionar observações a um agendamento
+// @route   PUT /api/agendamentos/:id/observacoes
+// @access  Private (Médico)
+exports.adicionarObservacoes = async (req, res) => {
+    try {
+        const { observacoes } = req.body;
+        const agendamentoId = req.params.id;
+
+        // Verificar se o agendamento existe
+        let agendamento = await Agendamento.findById(agendamentoId);
+
+        if (!agendamento) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agendamento não encontrado'
+            });
+        }
+
+        // Verificar se o médico logado é o médico do agendamento
+        const usuarioId = req.usuario.id;
+        const medico = await Medico.findOne({ usuario: usuarioId });
+
+        if (!medico || agendamento.medico.toString() !== medico._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Acesso negado. Este agendamento não pertence a você.'
+            });
+        }
+
+        // Atualizar observações
+        agendamento.observacoes = observacoes;
+        await agendamento.save();
+
+        // Recarregar com populate para a resposta
+        agendamento = await Agendamento.findById(agendamentoId)
+            .populate('paciente', 'nome email telefone')
+            .populate('medico', 'usuario especialidade');
+
+        res.json({
+            success: true,
+            message: 'Observações adicionadas com sucesso',
+            data: agendamento
+        });
+
+    } catch (error) {
+        console.error('Erro ao adicionar observações:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao adicionar observações',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Marcar agendamento como realizado
+// @route   PUT /api/agendamentos/:id/realizado
+// @access  Private (Médico)
+exports.marcarComoRealizado = async (req, res) => {
+    try {
+        const agendamentoId = req.params.id;
+
+        let agendamento = await Agendamento.findById(agendamentoId);
+
+        if (!agendamento) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agendamento não encontrado'
+            });
+        }
+
+        const usuarioId = req.usuario.id;
+        const medico = await Medico.findOne({ usuario: usuarioId });
+
+        if (!medico || agendamento.medico.toString() !== medico._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: 'Acesso negado. Este agendamento não pertence a você.'
+            });
+        }
+
+        agendamento.status = 'realizado';
+        await agendamento.save();
+
+        agendamento = await Agendamento.findById(agendamentoId)
+            .populate('paciente', 'nome email telefone')
+            .populate('medico', 'usuario especialidade');
+
+        res.json({
+            success: true,
+            message: 'Agendamento marcado como realizado',
+            data: agendamento
+        });
+
+    } catch (error) {
+        console.error('Erro ao marcar como realizado:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao marcar agendamento como realizado',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Cancelar agendamento (Admin)
+// @route   PUT /api/agendamentos/:id/cancelar-admin
+// @access  Private/Admin
+exports.cancelarAgendamentoAdmin = async (req, res) => {
+    try {
+        const agendamentoId = req.params.id;
+
+        console.log('🛠️ Admin cancelando agendamento:', agendamentoId);
+
+        const agendamento = await Agendamento.findById(agendamentoId)
+            .populate('paciente', 'nome email')
+            .populate('medico', 'especialidade'); 
+            // Nota: populate 'medico' aqui traz o objeto medico, não o usuario. 
+            // Se precisar do nome do médico, precisa de nested populate ou ajustar.
+
+        if (!agendamento) {
+            return res.status(404).json({
+                success: false,
+                message: 'Agendamento não encontrado'
+            });
+        }
+
+        if (agendamento.status === 'cancelado') {
+            return res.status(400).json({
+                success: false,
+                message: 'Agendamento já está cancelado'
+            });
+        }
+
+        agendamento.status = 'cancelado';
+        await agendamento.save();
+
+        // --- INTEGRAÇÃO REDIS (NOTIFICAÇÃO) ---
+        // Mesmo sendo admin, notificamos o paciente
+        await agendamento.populate({
+            path: 'medico',
+            populate: { path: 'usuario', select: 'nome' }
+        });
+
+        const eventoData = {
+            email: agendamento.paciente.email,
+            nome: agendamento.paciente.nome,
+            medico: agendamento.medico?.usuario?.nome || 'Médico',
+            data: new Date(agendamento.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' }),
+            horario: agendamento.horario
+        };
+
+        await publishEvent('AGENDAMENTO_CANCELADO', eventoData);
+        // ---------------------------------------
+
+        console.log('✅ Agendamento cancelado pelo admin:', agendamentoId);
+
+        res.json({
+            success: true,
+            message: 'Agendamento cancelado com sucesso pelo administrador',
+            data: agendamento
+        });
+
+    } catch (error) {
+        console.error('❌ Erro ao cancelar agendamento (admin):', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao cancelar agendamento',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get agendamentos do paciente (Formatado para Frontend)
+// @route   GET /api/agendamentos/paciente
+// @access  Private
+exports.getAgendamentosPaciente = async (req, res) => {
+    try {
+        const usuarioid = req.usuario.id;
+        
+        const agendamentos = await Agendamento.find({ paciente: usuarioid })
+            .populate({
+                path: 'medico',
+                select: 'especialidade consultorio usuario',
+                populate: {
+                    path: 'usuario',
+                    select: 'nome email telefone'
+                }
+            })
+            .sort({ data: 1 });
+
+        const agendamentosFormatados = agendamentos.map(agendamento => {
+            const dataObj = new Date(agendamento.data);
+            const dataFormatada = dataObj.toISOString().split('T')[0];
+
+            const nomeMedico = agendamento.medico?.usuario?.nome || 'Dr. Nome não disponível';
+            const especialidadeMedico = agendamento.medico?.especialidade || 'Especialidade não informada';
+
+            return {
+                _id: agendamento._id,
+                data: dataFormatada,
+                horario: agendamento.horario,
+                status: agendamento.status,
+                tipoConsulta: 'presencial',
+                medico: {
+                    nome: nomeMedico,
+                    especialidade: especialidadeMedico
+                },
+                observacoes: agendamento.observacoes
+            };
+        });
+
+        res.json(agendamentosFormatados);
+
+    } catch (error) {
+        console.error('Erro completo no getAgendamentosPaciente:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao listar agendamentos',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get agendamentos do médico logado (Formatado para Frontend)
+// @route   GET /api/agendamentos/medico
+// @access  Private (Médico)
+exports.getAgendamentosMedico = async (req, res) => {
+    try {
+        const usuarioId = req.usuario.id;
+        
+        const medico = await Medico.findOne({ usuario: usuarioId });
+        
+        if (!medico) {
+            return res.status(404).json({
+                success: false,
+                message: 'Médico não encontrado'
+            });
+        }
+
+        const agendamentos = await Agendamento.find({ medico: medico._id })
+        .populate('paciente', 'nome email telefone')
+        .populate({
+            path: 'medico',
+            select: 'especialidade usuario',
+            populate: {
+                path: 'usuario',
+                select: 'nome'
+            }
+        })
+        .sort({ data: -1, horario: -1 });
+
+        const agendamentosFormatados = agendamentos.map(agendamento => {
+            const dataObj = new Date(agendamento.data);
+            const dataFormatada = dataObj.toISOString().split('T')[0];
+            const nomeMedico = agendamento.medico?.usuario?.nome || 'Dr. Nome não disponível';
+
+            return {
+                _id: agendamento._id,
+                data: dataFormatada,
+                horario: agendamento.horario,
+                status: agendamento.status,
+                tipoConsulta: 'presencial',
+                paciente: {
+                    nome: agendamento.paciente?.nome || 'Paciente não encontrado',
+                    email: agendamento.paciente?.email || 'N/A',
+                    telefone: agendamento.paciente?.telefone || 'N/A'
+                },
+                medico: {
+                    nome: nomeMedico,
+                    especialidade: agendamento.especialidade || agendamento.medico.especialidade
+                },
+                observacoes: agendamento.observacoes
+            };
+        });
+
+        res.json(agendamentosFormatados);
+
+    } catch (error) {
+        console.error('Erro ao buscar agendamentos do médico:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao buscar agendamentos',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Buscar agendamentos do médico logado (Raw Data para Dashboard)
+// @route   GET /api/agendamentos/medico/meus-agendamentos
+// @access  Private (Médico)
+exports.getMeusAgendamentos = async (req, res) => {
+    try {
+        const usuarioId = req.usuario.id;
+        const medico = await Medico.findOne({ usuario: usuarioId });
+        
+        if (!medico) {
+            return res.status(404).json({
+                success: false,
+                message: 'Médico não encontrado'
+            });
+        }
+
+        const agendamentos = await Agendamento.find({ medico: medico._id })
+        .populate('paciente', 'nome email telefone')
+        .populate('medico', 'usuario especialidade')
+        .sort({ data: 1, horario: 1 });
+
+        res.json({
+            success: true,
+            count: agendamentos.length,
+            data: agendamentos
+        });
+
+    } catch (error) {
+        console.error('Erro ao buscar agendamentos do médico (Raw):', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao buscar agendamentos',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Listar todos os agendamentos (Admin)
+// @route   GET /api/agendamentos/todos
+// @access  Private/Admin
+exports.getTodosAgendamentos = async (req, res) => {
+    try {
+        const agendamentos = await Agendamento.find()
+            .populate('paciente', 'nome email telefone')
+            .populate({
+                path: 'medico',
+                select: 'especialidade consultorio usuario',
+                populate: {
+                    path: 'usuario',
+                    select: 'nome email'
+                }
+            })
+            .sort({ data: -1, horario: -1 });
+
+        const agendamentosFormatados = agendamentos.map(agendamento => {
+            const dataObj = new Date(agendamento.data);
+            const dataFormatada = dataObj.toISOString().split('T')[0];
+
+            return {
+                _id: agendamento._id,
+                data: dataFormatada,
+                horario: agendamento.horario,
+                status: agendamento.status,
+                tipoConsulta: 'presencial',
+                especialidade: agendamento.especialidade,
+                paciente: {
+                    nome: agendamento.paciente?.nome || 'Paciente',
+                    email: agendamento.paciente?.email || 'N/A',
+                    telefone: agendamento.paciente?.telefone || 'N/A'
+                },
+                medico: {
+                    nome: agendamento.medico?.usuario?.nome || 'Médico',
+                    especialidade: agendamento.medico?.especialidade || 'N/A'
+                },
+                observacoes: agendamento.observacoes
+            };
+        });
+
+        res.json(agendamentosFormatados);
+
+    } catch (error) {
+        console.error('Erro ao listar todos os agendamentos:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro ao listar agendamentos',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Obter relatórios de consultas (Admin/Médico)
+// @route   GET /api/agendamentos/relatorios
+// @access  Private
+exports.getRelatorios = async (req, res) => {
+    try {
+        const { periodo = '30dias' } = req.query;
+        
+        const dataFim = new Date();
+        const dataInicio = new Date();
+        
+        switch (periodo) {
+            case '7dias': dataInicio.setDate(dataInicio.getDate() - 7); break;
+            case '90dias': dataInicio.setDate(dataInicio.getDate() - 90); break;
+            case '1ano': dataInicio.setFullYear(dataInicio.getFullYear() - 1); break;
+            default: dataInicio.setDate(dataInicio.getDate() - 30);
+        }
+        dataInicio.setHours(0, 0, 0, 0);
+
+        // Agregação de Consultas por Mês
+        const seisMesesAtras = new Date();
+        seisMesesAtras.setMonth(seisMesesAtras.getMonth() - 6);
+        seisMesesAtras.setHours(0, 0, 0, 0);
+
+        const consultasPorMes = await Agendamento.aggregate([
+            { $match: { data: { $gte: seisMesesAtras } } },
+            {
+                $group: {
+                    _id: { year: { $year: "$data" }, month: { $month: "$data" } },
+                    total: { $sum: 1 },
+                    realizadas: { $sum: { $cond: [{ $eq: ["$status", "realizado"] }, 1, 0] } },
+                    canceladas: { $sum: { $cond: [{ $eq: ["$status", "cancelado"] }, 1, 0] } }
+                }
+            },
+            { $sort: { "_id.year": 1, "_id.month": 1 } }
+        ]);
+
+        // Agregação de Médicos
+        const medicosMaisSolicitados = await Agendamento.aggregate([
+            {
+                $group: {
+                    _id: "$medico",
+                    totalConsultas: { $sum: 1 },
+                    consultasRealizadas: { $sum: { $cond: [{ $eq: ["$status", "realizado"] }, 1, 0] } }
+                }
+            },
+            { $sort: { totalConsultas: -1 } },
+            { $limit: 10 },
+            { $lookup: { from: "medicos", localField: "_id", foreignField: "_id", as: "medicoInfo" } },
+            { $unwind: "$medicoInfo" },
+            { $lookup: { from: "usuarios", localField: "medicoInfo.usuario", foreignField: "_id", as: "usuarioInfo" } },
+            { $unwind: "$usuarioInfo" },
+            {
+                $project: {
+                    medico: "$usuarioInfo.nome",
+                    especialidade: "$medicoInfo.especialidade",
+                    totalConsultas: 1,
+                    consultasRealizadas: 1,
+                    taxaSucesso: { $multiply: [{ $divide: ["$consultasRealizadas", "$totalConsultas"] }, 100] }
+                }
+            }
+        ]);
+
+        // Agregação de Horários
+        const horariosPopulares = await Agendamento.aggregate([
+            { $group: { _id: "$horario", total: { $sum: 1 } } },
+            { $sort: { total: -1 } },
+            { $limit: 10 }
+        ]);
+
+        // Taxas
+        const totalAgendamentos = await Agendamento.countDocuments({ data: { $gte: dataInicio, $lte: dataFim } });
+        const totalRealizados = await Agendamento.countDocuments({ data: { $gte: dataInicio, $lte: dataFim }, status: "realizado" });
+        const taxaComparecimento = totalAgendamentos > 0 ? (totalRealizados / totalAgendamentos) * 100 : 0;
+
+        res.json({
+            success: true,
+            data: {
+                periodo: { inicio: dataInicio, fim: dataFim },
+                consultasPorMes: consultasPorMes.map(item => ({
+                    mes: `${item._id.month}/${item._id.year}`,
+                    total: item.total,
+                    realizadas: item.realizadas,
+                    canceladas: item.canceladas
+                })),
+                medicosMaisSolicitados,
+                horariosPopulares,
+                taxas: {
+                    comparecimento: Math.round(taxaComparecimento * 100) / 100,
+                    cancelamento: totalAgendamentos > 0 ? Math.round(((totalAgendamentos - totalRealizados) / totalAgendamentos) * 100 * 100) / 100 : 0
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro ao gerar relatórios:', error);
+        res.status(500).json({ success: false, message: 'Erro ao gerar relatórios', error: error.message });
+    }
+};
+
+// @desc    Obter estatísticas de status das consultas
+// @route   GET /api/agendamentos/estatisticas-status
+// @access  Private
+exports.getEstatisticasStatus = async (req, res) => {
+    try {
+        const { periodo = '30dias' } = req.query;
+        const dataFim = new Date();
+        const dataInicio = new Date();
+        
+        switch (periodo) {
+            case '7dias': dataInicio.setDate(dataInicio.getDate() - 7); break;
+            case '90dias': dataInicio.setDate(dataInicio.getDate() - 90); break;
+            case '1ano': dataInicio.setFullYear(dataInicio.getFullYear() - 1); break;
+            default: dataInicio.setDate(dataInicio.getDate() - 30);
+        }
+        dataInicio.setHours(0, 0, 0, 0);
+
+        const statusCounts = await Agendamento.aggregate([
+            { $match: { data: { $gte: dataInicio, $lte: dataFim } } },
+            { $group: { _id: "$status", total: { $sum: 1 } } }
+        ]);
+
+        const estatisticas = { agendado: 0, realizado: 0, cancelado: 0, confirmado: 0, faltou: 0 };
+        statusCounts.forEach(item => { estatisticas[item._id] = item.total; });
+
+        res.json({ success: true, data: estatisticas });
+
+    } catch (error) {
+        console.error('Erro ao buscar estatísticas de status:', error);
+        res.status(500).json({ success: false, message: 'Erro ao buscar estatísticas de status', error: error.message });
+    }
+};
