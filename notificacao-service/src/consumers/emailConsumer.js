@@ -1,20 +1,22 @@
-const redisClient = require('../redisClient');
-const { enviarConfirmacao, enviarCancelamento } = require('../services/emailService');
+import redisClient from "../redisClient.js";
+import {
+  enviarConfirmacao,
+  enviarCancelamento
+} from "../services/emailService.js";
 
-const iniciarConsumidor = async () => {
-  await redisClient.subscribe('AGENDAMENTO_CRIADO', (message) => {
-    console.log('Evento AGENDAMENTO_CRIADO recebido');
+export const iniciarConsumidor = async () => {
+
+  await redisClient.subscribe("AGENDAMENTO_CRIADO", (message) => {
+    console.log("Evento AGENDAMENTO_CRIADO recebido");
     const dados = JSON.parse(message);
-    enviarConfirmacao(dados.pacienteEmail, dados);
+    enviarConfirmacao(dados.email, dados);
   });
 
-  await redisClient.subscribe('AGENDAMENTO_CANCELADO', (message) => {
-    console.log('Evento AGENDAMENTO_CANCELADO recebido');
+  await redisClient.subscribe("AGENDAMENTO_CANCELADO", (message) => {
+    console.log("Evento AGENDAMENTO_CANCELADO recebido");
     const dados = JSON.parse(message);
-    enviarCancelamento(dados.pacienteEmail, dados);
+    enviarCancelamento(dados.email, dados);
   });
 
-  console.log('Consumidor ativo nos canais AGENDAMENTO_CRIADO e AGENDAMENTO_CANCELADO');
+  console.log("Consumidor ativo nos canais AGENDAMENTO_CRIADO e AGENDAMENTO_CANCELADO");
 };
-
-module.exports = { iniciarConsumidor };

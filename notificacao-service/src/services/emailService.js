@@ -1,31 +1,47 @@
-const sgMail = require('@sendgrid/mail');
-require('dotenv').config();
-const { confirmationTemplate, cancellationTemplate } = require('../templates/emailTemplates');
+import { Resend } from "resend";
+import dotenv from "dotenv";
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+dotenv.config();
 
-const enviarConfirmacao = async (to, dados) => {
-  const msg = {
-    to, from: process.env.FROM_EMAIL,
-    subject: 'Consulta Agendada - Confirmação',
-    html: confirmationTemplate(dados.pacienteNome, dados.medicoNome, dados.especialidade, dados.data, dados.horario)
-  };
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Função genérica de envio
+export const enviarEmail = async (to, assunto, mensagemHtml) => {
   try {
-    await sgMail.send(msg);
-    console.log(`Confirmação enviada para ${to}`);
-  } catch (e) { console.error('Erro SendGrid:', e.response?.body || e); }
+    const data = await resend.emails.send({
+      from: "Nami Agendamentos <onboarding@resend.dev>",
+      to,
+      subject: assunto,
+      html: mensagemHtml
+    });
+
+    console.log("Email enviado:", data);
+    return data;
+
+  } catch (err) {
+    console.error("Erro ao enviar email:", err);
+    throw err;
+  }
 };
 
-const enviarCancelamento = async (to, dados) => {
-  const msg = {
-    to, from: process.env.FROM_EMAIL,
-    subject: 'Consulta Cancelada',
-    html: cancellationTemplate(dados.pacienteNome, dados.medicoNome, dados.data, dados.horario)
-  };
-  try {
-    await sgMail.send(msg);
-    console.log(`Cancelamento enviado para ${to}`);
-  } catch (e) { console.error('Erro SendGrid:', e.response?.body || e); }
+// =============== EXPORTS QUE SEU CONSUMER PRECISA =====================
+
+export const enviarConfirmacao = async (email, dados) => {
+  const mensagem = `
+    <h2>Agendamento Confirmado</h2>
+    <p>Olá ${dados.nome}, seu agendamento foi confirmado!</p>
+    <p><strong>Data:</strong> ${dados.data}</p>
+  `;
+
+  return enviarEmail(email, "Agendamento Confirmado", mensagem);
 };
 
-module.exports = { enviarConfirmacao, enviarCancelamento };
+export const enviarCancelamento = async (email, dados) => {
+  const mensagem = `
+    <h2>Agendamento Cancelado</h2>
+    <p>Olá ${dados.nome}, seu agendamento foi cancelado.</p>
+    <p><strong>Data:</strong> ${dados.data}</p>
+  `;
+
+  return enviarEmail(email, "Agendamento Cancelado", mensagem);
+};
