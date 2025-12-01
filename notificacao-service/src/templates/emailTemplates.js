@@ -44,5 +44,3 @@ const cancellationTemplate = (pacienteNome, medicoNome, data, horario) => `
 </div>
 </body></html>
 `;
-
-module.exports = { confirmationTemplate, cancellationTemplate };
